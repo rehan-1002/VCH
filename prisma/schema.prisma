@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Queue {
+  id                   String       @id @default(cuid())
+  name                 String
+  code                 String       @unique
+  department           String
+  description          String?
+  status               String       @default("ACTIVE") // ACTIVE, PAUSED, CLOSED
+  estimatedServiceTime Int          @default(5) // in minutes
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  tokens               Token[]
+  counters             Counter[]
+  tokenEvents          TokenEvent[]
+}
+
+model Counter {
+  id                    String   @id @default(cuid())
+  number                Int      @unique
+  name                  String
+  queueId               String?
+  queue                 Queue?   @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  status                String   @default("AVAILABLE") // AVAILABLE, BUSY, PAUSED, CLOSED
+  operatorName          String   @default("Operator")
+  currentServingTokenId String?
+  updatedAt             DateTime @updatedAt
+  tokens                Token[]
+}
+
+model Token {
+  id               String            @id @default(cuid())
+  displayNumber    String
+  sequenceNumber   Int
+  queueId          String
+  queue            Queue             @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  visitorSessionId String
+  visitorName      String            @default("Visitor")
+  purpose          String            @default("General Service")
+  status           String            @default("WAITING") // WAITING, CALLED, SERVING, COMPLETED, CANCELLED, NO_SHOW
+  position         Int               @default(0)
+  priority         String            @default("STANDARD") // STANDARD, EMERGENCY
+  counterId        String?
+  counter          Counter?          @relation(fields: [counterId], references: [id], onDelete: SetNull)
+  createdAt        DateTime          @default(now())
+  calledAt         DateTime?
+  servingAt        DateTime?
+  completedAt      DateTime?
+  cancelledAt      DateTime?
+  emergencyRequest EmergencyRequest?
+  events           TokenEvent[]
+
+  @@index([queueId, status, position])
+  @@index([visitorSessionId])
+}
+
+model EmergencyRequest {
+  id          String    @id @default(cuid())
+  tokenId     String    @unique
+  token       Token     @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  reason      String
+  status      String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  requestedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  notes       String?
+
+  @@index([status])
+}
+
+model TokenEvent {
+  id        String   @id @default(cuid())
+  tokenId   String?
+  token     Token?   @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+  queueId   String?
+  queue     Queue?   @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  eventType String // TOKEN_CREATED, TOKEN_CANCELLED, EMERGENCY_REQUESTED, EMERGENCY_PROMOTED, EMERGENCY_REJECTED, TOKEN_CALLED, TOKEN_SERVING, TOKEN_COMPLETED, TOKEN_NO_SHOW, TOKEN_RECALLED, TOKEN_TRANSFERRED, COUNTER_PAUSED, COUNTER_RESUMED
+  actor     String   @default("SYSTEM")
+  metadata  String   @default("{}") // JSON encoded payload
+  createdAt DateTime @default(now())
+
+  @@index([queueId, createdAt])
+  @@index([eventType])
+}
