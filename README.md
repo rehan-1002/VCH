@@ -36,7 +36,7 @@
 | 👨‍💻 Team Member | 🎯 Role & Focus |
 | :--- | :--- |
 | **Rehan Ansari** | Full-Stack Architecture, Real-Time Engine, Next.js 15 & Supabase Pipeline |
-| **Patel Afia** | AI Intelligence Layer, Gemini Operational Reports & Cohere Intent Triage |
+| **Patel Afifa** | AI Intelligence Layer, Gemini Operational Reports & Cohere Intent Triage |
 | **Poonawala Mansoor** | UI/UX & Interactive Design, GSAP Crowd Canvas, Audio Signage & Telemetry |
 
 </div>
@@ -496,7 +496,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser to experienc
 
 This project is open-source under the **MIT License**.
 
-Built with pride for the **Vibecode Hackathon** by **Rehan Ansari**, **Patel Afia**, and **Poonawala Mansoor**.
+Built with pride for the **Vibecode Hackathon** by **Rehan Ansari**, **Patel Afifa**, and **Poonawala Mansoor**.
 
 <div align="center">
   <sub>Engineered for speed, built for real-world impact.</sub><br />
