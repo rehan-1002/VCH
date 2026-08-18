@@ -253,6 +253,17 @@ export default function CounterConsolePage() {
     }
   };
 
+  const callNextInScope = () => {
+    const targetQueueId =
+      selectedQueueFilter === "ALL"
+        ? null
+        : selectedQueueFilter === "ASSIGNED"
+        ? currentCounter?.queueId
+        : selectedQueueFilter;
+
+    handleCounterAction("CALL_NEXT", { targetQueueId });
+  };
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -262,7 +273,7 @@ export default function CounterConsolePage() {
 
       if (e.key === "Enter") {
         e.preventDefault();
-        handleCounterAction("CALL_NEXT");
+        callNextInScope();
       } else if ((e.key.toLowerCase() === "c" || e.code === "Space") && currentToken) {
         e.preventDefault();
         handleCounterAction("COMPLETE");
@@ -287,7 +298,7 @@ export default function CounterConsolePage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentCounter, currentToken]);
+  }, [currentCounter, currentToken, selectedQueueFilter]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -484,7 +495,7 @@ export default function CounterConsolePage() {
                   variant="primary"
                   size="lg"
                   className="w-full text-base py-4 font-mono font-bold"
-                  onClick={() => handleCounterAction("CALL_NEXT")}
+                  onClick={callNextInScope}
                   disabled={currentCounter.status === "PAUSED"}
                   isLoading={actionLoading === "CALL_NEXT"}
                   icon={<PhoneCall className="w-5 h-5" />}

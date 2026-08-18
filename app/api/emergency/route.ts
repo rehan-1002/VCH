@@ -4,6 +4,7 @@ import {
   submitEmergencyRequest,
   approveEmergencyRequest,
   rejectEmergencyRequest,
+  toggleDirectEmergency,
 } from "@/lib/queue/engine";
 import { EmergencyRequestSchema, EmergencyReviewSchema } from "@/lib/security/validation";
 import { sanitizeText } from "@/lib/security/sanitize";
@@ -63,8 +64,24 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const parsed = EmergencyReviewSchema.safeParse(body);
 
+    // Direct Token Priority Override (e.g. from Tokens Directory)
+    if (body.tokenId && (body.action === "DIRECT_PROMOTE" || body.action === "DIRECT_DEMOTE")) {
+      const setEmergency = body.action === "DIRECT_PROMOTE";
+      const cleanReviewer = sanitizeText(body.reviewer) || "Admin";
+      const cleanNotes = body.notes ? sanitizeText(body.notes) : undefined;
+      const updated = await toggleDirectEmergency(body.tokenId, setEmergency, cleanReviewer, cleanNotes);
+      const display = updated ? updated.displayNumber : body.tokenId;
+      return NextResponse.json({
+        success: true,
+        message: setEmergency
+          ? `Token ${display} promoted to Emergency (#1 in queue).`
+          : `Token ${display} demoted to Standard priority.`,
+        token: updated,
+      });
+    }
+
+    const parsed = EmergencyReviewSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { success: false, error: parsed.error.errors[0]?.message || "Invalid review data" },

@@ -1,22 +1,27 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
-  ShieldAlert,
   Users,
-  Monitor,
+  Clock,
   Activity,
-  BarChart3,
+  ShieldAlert,
+  AlertTriangle,
+  FileText,
   Sparkles,
-  Database,
   CheckCircle2,
   XCircle,
-  Clock,
-  RotateCcw,
+  RefreshCw,
+  TrendingUp,
+  LayoutDashboard,
   Layers,
-  AlertTriangle,
-  Play,
-  Pause,
+  Search,
+  Database,
+  ArrowUpRight,
+  ArrowDown,
+  Trash2,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
@@ -25,57 +30,49 @@ import { ConnectionBadge } from "@/components/ui/ConnectionBadge";
 import { useRealtimeQueue } from "@/components/hooks/useRealtimeQueue";
 
 export default function AdminCockpitPage() {
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "emergencies" | "tokens" | "analytics" | "system"
-  >("overview");
-
+  const [activeTab, setActiveTab] = useState<"overview" | "emergency" | "tokens" | "analytics">("overview");
   const [queues, setQueues] = useState<any[]>([]);
   const [counters, setCounters] = useState<any[]>([]);
   const [tokens, setTokens] = useState<any[]>([]);
   const [emergencyRequests, setEmergencyRequests] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any | null>(null);
-
-  // AI Report state
-  const [aiReport, setAiReport] = useState<any | null>(null);
-  const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
-
-  // Seeder state
-  const [isSeeding, setIsSeeding] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [isSeeding, setIsSeeding] = useState<boolean>(false);
+  const [aiReport, setAiReport] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [tokenSearch, setTokenSearch] = useState<string>("");
+  const [tokenQueueFilter, setTokenQueueFilter] = useState<string>("ALL");
 
   const showNotification = (message: string, type: "success" | "error" = "success") => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const fetchAdminData = useCallback(async () => {
+  // Authoritative State Fetcher
+  const fetchAdminData = useCallback(async (silent = false) => {
+    if (!silent) setIsRefreshing(true);
     try {
-      const results = await Promise.allSettled([
-        fetch("/api/queues").then((r) => r.json()),
-        fetch("/api/counters").then((r) => r.json()),
-        fetch("/api/tokens").then((r) => r.json()),
-        fetch("/api/emergency").then((r) => r.json()),
-        fetch("/api/analytics").then((r) => r.json()),
+      const [qRes, cRes, tRes, eRes, aRes] = await Promise.allSettled([
+        fetch("/api/queues", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/counters", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/tokens", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/emergency", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/analytics", { cache: "no-store" }).then((r) => r.json()),
       ]);
 
-      if (results[0].status === "fulfilled" && results[0].value.success) {
-        setQueues(results[0].value.queues || []);
-      }
-      if (results[1].status === "fulfilled" && results[1].value.success) {
-        setCounters(results[1].value.counters || []);
-      }
-      if (results[2].status === "fulfilled" && results[2].value.success) {
-        setTokens(results[2].value.tokens || []);
-      }
-      if (results[3].status === "fulfilled" && results[3].value.success) {
-        setEmergencyRequests(results[3].value.requests || []);
-      }
-      if (results[4].status === "fulfilled" && results[4].value.success) {
-        setAnalytics(results[4].value.analytics || null);
-      }
+      if (qRes.status === "fulfilled" && qRes.value.success) setQueues(qRes.value.queues || []);
+      if (cRes.status === "fulfilled" && cRes.value.success) setCounters(cRes.value.counters || []);
+      if (tRes.status === "fulfilled" && tRes.value.success) setTokens(tRes.value.tokens || []);
+      if (eRes.status === "fulfilled" && eRes.value.success) setEmergencyRequests(eRes.value.requests || []);
+      if (aRes.status === "fulfilled" && aRes.value.success) setAnalytics(aRes.value.metrics || null);
     } catch (err) {
       console.error("Failed to load admin data:", err);
+    } finally {
+      setIsLoading(false);
+      if (!silent) setIsRefreshing(false);
     }
   }, []);
 
@@ -86,22 +83,22 @@ export default function AdminCockpitPage() {
   // Realtime hook - receives all events globally
   const { connectionState } = useRealtimeQueue({
     onEvent: () => {
-      fetchAdminData();
+      fetchAdminData(true);
     },
     onReconcile: () => {
-      fetchAdminData();
+      fetchAdminData(true);
     },
   });
 
   // 3-second auto-polling fallback for live sync
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchAdminData();
+      fetchAdminData(true);
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchAdminData]);
 
-  // Emergency Approval / Rejection
+  // Formal Emergency Request Approval / Rejection
   const handleReviewEmergency = async (requestId: string, action: "APPROVE" | "REJECT") => {
     setActionLoading(`${requestId}_${action}`);
     try {
@@ -127,9 +124,38 @@ export default function AdminCockpitPage() {
           : "Priority Rejected. Queue order maintained.",
         "success"
       );
-      await fetchAdminData();
+      await fetchAdminData(true);
     } catch (err: any) {
       showNotification(err.message || "Failed to process emergency review", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Direct Admin Emergency Override (Promote or Demote Any Token)
+  const handleDirectPriorityToggle = async (tokenId: string, setEmergency: boolean) => {
+    setActionLoading(`priority_${tokenId}`);
+    try {
+      const res = await fetch("/api/emergency", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tokenId,
+          action: setEmergency ? "DIRECT_PROMOTE" : "DIRECT_DEMOTE",
+          reviewer: "System Administrator",
+          notes: setEmergency ? "Direct priority grant by Admin" : "Demoted to standard priority",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to update token priority");
+      }
+
+      showNotification(data.message || "Priority updated successfully!", "success");
+      await fetchAdminData(true);
+    } catch (err: any) {
+      showNotification(err.message || "Failed to modify priority", "error");
     } finally {
       setActionLoading(null);
     }
@@ -167,7 +193,7 @@ export default function AdminCockpitPage() {
       const data = await res.json();
       if (data.success) {
         showNotification("Seeded Benchmark Queues & Tokens (A #1, B #2, C #3, D #4)", "success");
-        await fetchAdminData();
+        await fetchAdminData(true);
       }
     } catch (err: any) {
       showNotification("Failed to seed demo data", "error");
@@ -178,75 +204,105 @@ export default function AdminCockpitPage() {
 
   const pendingEmergencies = emergencyRequests.filter((e) => e.status === "PENDING");
 
+  // Filter tokens for directory
+  const filteredTokens = tokens.filter((t) => {
+    const matchesSearch =
+      tokenSearch.trim() === "" ||
+      t.displayNumber.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+      t.visitorName.toLowerCase().includes(tokenSearch.toLowerCase()) ||
+      t.purpose.toLowerCase().includes(tokenSearch.toLowerCase());
+
+    const matchesQueue =
+      tokenQueueFilter === "ALL" || t.queueId === tokenQueueFilter;
+
+    return matchesSearch && matchesQueue;
+  });
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Admin Cockpit Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+    <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto pb-16">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4 sm:pb-6">
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-            System Operations Command
+          <span className="text-[10px] sm:text-[11px] font-mono uppercase tracking-widest text-zinc-500">
+            Administrative Operations Cockpit
           </span>
-          <h1 className="text-xl font-mono font-bold tracking-tight text-white mt-0.5">
-            Administrator Control Cockpit
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-mono font-bold tracking-tight text-white mt-1 flex items-center gap-2">
+            System Control & Telemetry
+            {isRefreshing && (
+              <RefreshCw className="w-4 h-4 text-zinc-500 animate-spin" />
+            )}
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={handleSeedDemo}
             isLoading={isSeeding}
-            icon={<Database className="w-3.5 h-3.5 text-emerald-400" />}
+            icon={<Database className="w-3.5 h-3.5 text-blue-400" />}
+            className="border-zinc-800 font-mono text-xs"
           >
-            Seed Demo Data
+            Seed Demo Benchmarks
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchAdminData(false)}
+            isLoading={isRefreshing}
+            className="border-zinc-800 text-zinc-400 hover:text-zinc-200 font-mono text-xs"
+          >
+            <RefreshCw className="w-3 h-3 mr-1" /> Sync
+          </Button>
+
           <ConnectionBadge state={connectionState} />
         </div>
       </div>
 
-      {/* Toast Notification */}
+      {/* Action Notification Toast */}
       {notification && (
         <div
-          className={`rounded-lg border px-4 py-2.5 text-xs font-mono flex items-center gap-2 ${
+          className={`rounded-lg border px-4 py-3 text-xs font-mono flex items-center gap-2 transition-all shadow-lg ${
             notification.type === "success"
-              ? "bg-emerald-950/70 border-emerald-700 text-emerald-200"
-              : "bg-red-950/70 border-red-700 text-red-200"
+              ? "bg-emerald-950/90 border-emerald-700 text-emerald-200"
+              : "bg-red-950/90 border-red-700 text-red-200"
           }`}
         >
           {notification.type === "success" ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
           ) : (
-            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
           )}
           <span>{notification.message}</span>
         </div>
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-1 border-b border-zinc-850 pb-2">
+      <div className="flex items-center gap-1 border-b border-zinc-800 pb-px overflow-x-auto">
         <button
           onClick={() => setActiveTab("overview")}
-          className={`px-3.5 py-1.5 rounded text-xs font-mono uppercase tracking-wider transition-colors ${
+          className={`px-4 py-2.5 text-xs font-mono font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === "overview"
-              ? "bg-zinc-100 text-zinc-950 font-bold"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+              ? "border-zinc-100 text-white"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          Overview
+          <LayoutDashboard className="w-4 h-4" /> System Overview
         </button>
 
         <button
-          onClick={() => setActiveTab("emergencies")}
-          className={`px-3.5 py-1.5 rounded text-xs font-mono uppercase tracking-wider transition-colors relative flex items-center gap-1.5 ${
-            activeTab === "emergencies"
-              ? "bg-zinc-100 text-zinc-950 font-bold"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+          onClick={() => setActiveTab("emergency")}
+          className={`px-4 py-2.5 text-xs font-mono font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap relative ${
+            activeTab === "emergency"
+              ? "border-red-500 text-red-400"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          <span>Priority Reviews</span>
+          <ShieldAlert className="w-4 h-4" />
+          Emergency Triage
           {pendingEmergencies.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-mono animate-pulse">
               {pendingEmergencies.length}
             </span>
           )}
@@ -254,165 +310,158 @@ export default function AdminCockpitPage() {
 
         <button
           onClick={() => setActiveTab("tokens")}
-          className={`px-3.5 py-1.5 rounded text-xs font-mono uppercase tracking-wider transition-colors ${
+          className={`px-4 py-2.5 text-xs font-mono font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === "tokens"
-              ? "bg-zinc-100 text-zinc-950 font-bold"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+              ? "border-zinc-100 text-white"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          Active Tokens ({tokens.filter((t) => t.status === "WAITING" || t.status === "CALLED").length})
+          <Layers className="w-4 h-4" /> Active Tokens ({tokens.length})
         </button>
 
         <button
           onClick={() => setActiveTab("analytics")}
-          className={`px-3.5 py-1.5 rounded text-xs font-mono uppercase tracking-wider transition-colors ${
+          className={`px-4 py-2.5 text-xs font-mono font-bold transition-all border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === "analytics"
-              ? "bg-zinc-100 text-zinc-950 font-bold"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+              ? "border-zinc-100 text-white"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          Analytics & AI Reports
+          <TrendingUp className="w-4 h-4" /> AI Telemetry & KPIs
         </button>
       </div>
 
-      {/* TAB 1: OVERVIEW */}
+      {/* TAB 1: SYSTEM OVERVIEW */}
       {activeTab === "overview" && (
-        <div className="space-y-6">
-          {/* Key Metric Gauges */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+        <div className="space-y-8">
+          {/* Top KPI Metrics Row */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                Total Waiting Queue
+                Total In System
               </span>
-              <div className="font-mono text-3xl font-bold text-white mt-1">
-                {analytics?.waitingCount ?? 0}
+              <div className="mt-1 font-mono text-3xl font-bold text-white">
+                {analytics?.totalInSystem || tokens.filter((t) => t.status === "WAITING" || t.status === "CALLED").length}
               </div>
-              <span className="text-[11px] text-zinc-400 mt-1 block">
-                Across {queues.length} service departments
-              </span>
+              <span className="text-[11px] text-zinc-400 mt-1 block">Active visitors across queues</span>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
                 Active Counters
               </span>
-              <div className="font-mono text-3xl font-bold text-emerald-400 mt-1">
-                {analytics?.activeCountersCount ?? 0} / {counters.length}
+              <div className="mt-1 font-mono text-3xl font-bold text-emerald-400">
+                {counters.filter((c) => c.status === "AVAILABLE" || c.status === "BUSY").length} / {counters.length}
               </div>
-              <span className="text-[11px] text-zinc-400 mt-1 block">
-                {analytics?.pausedCountersCount ?? 0} counter(s) on break
-              </span>
+              <span className="text-[11px] text-zinc-400 mt-1 block">Operational workstations</span>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                Average Wait
+                Emergency Priority
               </span>
-              <div className="font-mono text-3xl font-bold text-zinc-100 mt-1">
-                ~{analytics?.averageWaitMins ?? 0}m
+              <div className="mt-1 font-mono text-3xl font-bold text-red-400">
+                {tokens.filter((t) => t.priority === "EMERGENCY" && t.status === "WAITING").length}
               </div>
-              <span className="text-[11px] text-zinc-400 mt-1 block">
-                Avg service: ~{analytics?.averageServiceMins ?? 0}m
-              </span>
+              <span className="text-[11px] text-zinc-400 mt-1 block">Active emergency tokens at #1</span>
             </div>
 
-            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
               <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                Counter Utilization
+                Average Wait Time
               </span>
-              <div className="font-mono text-3xl font-bold text-blue-400 mt-1">
-                {analytics?.counterUtilizationPct ?? 0}%
+              <div className="mt-1 font-mono text-3xl font-bold text-white">
+                ~{analytics?.avgWaitMins || 4}m
               </div>
-              <span className="text-[11px] text-zinc-400 mt-1 block">
-                Throughput rate
-              </span>
+              <span className="text-[11px] text-zinc-400 mt-1 block">Dynamic weighted average</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Live Queues Overview */}
-            <div className="lg:col-span-7 space-y-4">
-              <Panel title="Service Queues Status" subtitle="Realtime load across institutional departments">
-                <div className="space-y-3">
-                  {queues.map((q) => (
-                    <div
-                      key={q.id}
-                      className="p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/60 flex items-center justify-between"
-                    >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-white text-sm">
-                            [{q.code}] {q.name}
-                          </span>
-                          <StatusBadge status={q.status} />
-                        </div>
-                        <span className="text-xs text-zinc-400">{q.department}</span>
-                      </div>
-
-                      <div className="flex items-center gap-4 text-right font-mono">
-                        <div>
-                          <span className="text-lg font-bold text-emerald-400">
-                            {q.waitingCount}
-                          </span>
-                          <span className="text-[10px] text-zinc-500 block uppercase">Waiting</span>
-                        </div>
-                        <div className="border-l border-zinc-800 pl-3">
-                          <span className="text-sm font-semibold text-zinc-300">
-                            ~{q.estimatedServiceTime}m
-                          </span>
-                          <span className="text-[10px] text-zinc-500 block uppercase">Avg Pace</span>
-                        </div>
-                      </div>
+          {/* Department Queues Grid */}
+          <div>
+            <h2 className="text-sm font-mono uppercase font-bold text-zinc-300 mb-3">
+              Department Service Queues
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {queues.map((q) => (
+                <Panel
+                  key={q.id}
+                  title={`[${q.code}] ${q.name}`}
+                  subtitle={q.description}
+                  badge={
+                    <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-300 font-bold">
+                      {q.waitingCount} WAITING
+                    </span>
+                  }
+                >
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+                      <span>Est. Service Time:</span>
+                      <span className="text-zinc-200 font-bold">{q.estimatedServiceTime} mins</span>
                     </div>
-                  ))}
-                </div>
-              </Panel>
-            </div>
 
-            {/* Counters Overview */}
-            <div className="lg:col-span-5 space-y-4">
-              <Panel title="Workstation Counters" subtitle="Active operator assignments & capacity">
-                <div className="space-y-2.5">
-                  {counters.map((c) => (
-                    <div
-                      key={c.id}
-                      className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/60 flex items-center justify-between"
-                    >
-                      <div>
-                        <span className="font-mono font-bold text-zinc-200 text-xs block">
-                          {c.name}
-                        </span>
-                        <span className="text-[11px] text-zinc-500">
-                          {c.operatorName} • {c.queue?.name || "General"}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {c.currentServingToken && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 font-mono text-xs font-bold text-emerald-300">
-                            {c.currentServingToken.displayNumber}
-                          </span>
-                        )}
-                        <StatusBadge status={c.status} />
-                      </div>
+                    <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+                      <span>Active Counters:</span>
+                      <span className="text-emerald-400 font-bold">{q.activeCounters || 1} online</span>
                     </div>
-                  ))}
-                </div>
-              </Panel>
+
+                    {/* Waiting Tokens List in Queue */}
+                    <div className="mt-3 pt-3 border-t border-zinc-850 space-y-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 block">
+                        Top Waiting Tokens:
+                      </span>
+                      {q.waitingTokens && q.waitingTokens.length > 0 ? (
+                        q.waitingTokens.slice(0, 4).map((t: any) => (
+                          <div
+                            key={t.id}
+                            className={`flex items-center justify-between p-2 rounded bg-zinc-900 border text-xs font-mono ${
+                              t.priority === "EMERGENCY"
+                                ? "border-red-700 bg-red-950/30 text-red-200"
+                                : "border-zinc-800 text-zinc-300"
+                            }`}
+                          >
+                            <span className="font-bold">
+                              #{t.position} {t.displayNumber}
+                            </span>
+                            <span className="text-[11px] text-zinc-400 truncate max-w-[120px]">
+                              {t.visitorName}
+                            </span>
+                            {t.priority === "EMERGENCY" ? (
+                              <span className="px-1 py-0.2 rounded bg-red-900 text-[9px] text-red-200">
+                                EMERGENCY
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleDirectPriorityToggle(t.id, true)}
+                                className="text-[10px] text-red-400 hover:text-red-300 hover:underline"
+                                title="Promote to Emergency"
+                              >
+                                Escalate
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-zinc-500 italic py-2">No visitors waiting</div>
+                      )}
+                    </div>
+                  </div>
+                </Panel>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: EMERGENCY REVIEW */}
-      {activeTab === "emergencies" && (
-        <div className="space-y-4">
+      {/* TAB 2: EMERGENCY TRIAGE */}
+      {activeTab === "emergency" && (
+        <div className="space-y-6">
           <Panel
-            title="Priority Review Requests"
-            subtitle="Authoritative administrative review for emergency queue promotions"
+            title="Emergency Priority Review Panel"
+            subtitle="Adjudicate visitor escalation requests. Approved requests move atomically to position #1 across the queue."
             badge={
-              <span className="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-[10px] font-mono text-red-300">
-                {pendingEmergencies.length} PENDING
+              <span className="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 text-[10px] font-mono font-bold">
+                {pendingEmergencies.length} PENDING REVIEW
               </span>
             }
           >
@@ -512,10 +561,48 @@ export default function AdminCockpitPage() {
         </div>
       )}
 
-      {/* TAB 3: ACTIVE TOKENS */}
+      {/* TAB 3: ACTIVE TOKENS DIRECTORY & DIRECT PRIORITY OVERRIDE */}
       {activeTab === "tokens" && (
-        <Panel title="Active Tokens Directory" subtitle="Authoritative list of all issued queue tokens">
-          <div className="overflow-x-auto">
+        <Panel
+          title="Active Tokens Directory & Priority Controls"
+          subtitle="Authoritative list of all issued tokens. Promote or demote any token priority with instant re-indexing."
+          badge={
+            <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-300 font-bold">
+              {filteredTokens.length} MATCHING
+            </span>
+          }
+        >
+          {/* Filter and Search Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search token #, visitor name, purpose..."
+                value={tokenSearch}
+                onChange={(e) => setTokenSearch(e.target.value)}
+                className="w-full rounded border border-zinc-800 bg-zinc-900 pl-8 pr-3 py-1.5 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono uppercase text-zinc-500">Queue:</span>
+              <select
+                value={tokenQueueFilter}
+                onChange={(e) => setTokenQueueFilter(e.target.value)}
+                className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-xs font-mono text-zinc-200 focus:outline-none"
+              >
+                <option value="ALL">All Queues</option>
+                {queues.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    [{q.code}] {q.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto mt-2">
             <table className="w-full text-left text-xs font-mono">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-500 uppercase text-[10px] tracking-wider">
@@ -524,43 +611,79 @@ export default function AdminCockpitPage() {
                   <th className="py-2.5 px-3">VISITOR</th>
                   <th className="py-2.5 px-3">PURPOSE</th>
                   <th className="py-2.5 px-3">POS</th>
-                  <th className="py-2.5 px-3">ISSUED</th>
-                  <th className="py-2.5 px-3 text-right">STATUS</th>
+                  <th className="py-2.5 px-3">STATUS</th>
+                  <th className="py-2.5 px-3 text-right">PRIORITY OVERRIDE</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-850">
-                {tokens.map((token) => (
-                  <tr key={token.id} className="hover:bg-zinc-900/50">
-                    <td className="py-3 px-3 font-bold text-white tracking-wider">
-                      {token.displayNumber}
-                    </td>
-                    <td className="py-3 px-3 text-zinc-300">
-                      [{token.queue?.code}] {token.queue?.name}
-                    </td>
-                    <td className="py-3 px-3 text-zinc-200">{token.visitorName}</td>
-                    <td className="py-3 px-3 text-zinc-400 max-w-[150px] truncate">
-                      {token.purpose}
-                    </td>
-                    <td className="py-3 px-3 font-bold text-zinc-300">
-                      {token.position > 0 ? `#${token.position}` : "—"}
-                    </td>
-                    <td className="py-3 px-3 text-zinc-500">
-                      {new Date(token.createdAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <StatusBadge
-                        status={
-                          token.priority === "EMERGENCY"
-                            ? "EMERGENCY"
-                            : token.status
-                        }
-                      />
+                {filteredTokens.length > 0 ? (
+                  filteredTokens.map((token) => {
+                    const isWaiting = token.status === "WAITING";
+                    const isEmergency = token.priority === "EMERGENCY";
+
+                    return (
+                      <tr key={token.id} className="hover:bg-zinc-900/50 transition-colors">
+                        <td className="py-3 px-3 font-bold text-white tracking-wider">
+                          {token.displayNumber}
+                        </td>
+                        <td className="py-3 px-3 text-zinc-300">
+                          [{token.queue?.code}] {token.queue?.name}
+                        </td>
+                        <td className="py-3 px-3 text-zinc-200">{token.visitorName}</td>
+                        <td className="py-3 px-3 text-zinc-400 max-w-[150px] truncate">
+                          {token.purpose}
+                        </td>
+                        <td className="py-3 px-3 font-bold text-zinc-300">
+                          {token.position > 0 ? `#${token.position}` : "—"}
+                        </td>
+                        <td className="py-3 px-3">
+                          <StatusBadge
+                            status={
+                              token.priority === "EMERGENCY"
+                                ? "EMERGENCY"
+                                : token.status
+                            }
+                          />
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {isWaiting && (
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isEmergency ? (
+                                <Button
+                                  variant="warning"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] font-mono"
+                                  onClick={() => handleDirectPriorityToggle(token.id, false)}
+                                  isLoading={actionLoading === `priority_${token.id}`}
+                                  icon={<ArrowDown className="w-3 h-3" />}
+                                >
+                                  Demote to Standard
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="danger"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] font-mono"
+                                  onClick={() => handleDirectPriorityToggle(token.id, true)}
+                                  isLoading={actionLoading === `priority_${token.id}`}
+                                  icon={<ShieldAlert className="w-3 h-3" />}
+                                >
+                                  Promote to #1
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-zinc-500 font-mono">
+                      No matching tokens found.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -580,60 +703,19 @@ export default function AdminCockpitPage() {
                 size="sm"
                 onClick={handleGenerateReport}
                 isLoading={isGeneratingReport}
-                icon={<Sparkles className="w-3.5 h-3.5" />}
+                icon={<Sparkles className="w-3.5 h-3.5 text-emerald-300" />}
               >
-                Generate Grounded Assessment
+                Generate Grounded Report
               </Button>
             }
           >
             {aiReport ? (
-              <div className="space-y-4 pt-2">
-                <div className="p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/60">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold block mb-1">
-                    Executive Summary
-                  </span>
-                  <p className="text-xs text-zinc-200 leading-relaxed">
-                    {aiReport.executiveSummary}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 block mb-1">
-                      Congestion & Queue Flow
-                    </span>
-                    <p className="text-xs text-zinc-300">
-                      {aiReport.congestionAnalysis}
-                    </p>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-zinc-800 bg-zinc-900/40">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 block mb-1">
-                      Workstation Counter Efficiency
-                    </span>
-                    <p className="text-xs text-zinc-300">
-                      {aiReport.counterEfficiency}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-lg border border-zinc-800 bg-zinc-900/40">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-bold block mb-2">
-                    Actionable Recommendations
-                  </span>
-                  <ul className="space-y-1.5 text-xs text-zinc-300">
-                    {aiReport.recommendations?.map((rec: string, idx: number) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <span className="text-emerald-400 font-mono">▸</span>
-                        <span>{rec}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60 font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap">
+                {aiReport}
               </div>
             ) : (
-              <div className="py-8 text-center text-xs font-mono text-zinc-500">
-                Click &quot;Generate Grounded Assessment&quot; to synthesize operational insights from live queue events.
+              <div className="py-12 text-center text-xs font-mono text-zinc-500">
+                Click &quot;Generate Grounded Report&quot; to synthesize multi-source telemetry into an executive brief.
               </div>
             )}
           </Panel>

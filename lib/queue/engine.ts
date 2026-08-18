@@ -567,6 +567,75 @@ export async function rejectEmergencyRequest(requestId: string, reviewer = "Admi
 }
 
 /**
+ * Direct Admin Priority Promotion / Demotion (without needing visitor request)
+ */
+export async function toggleDirectEmergency(
+  tokenId: string,
+  setEmergency: boolean,
+  reviewer = "Admin",
+  notes?: string
+) {
+  const token = await prisma.token.findUnique({
+    where: { id: tokenId },
+    include: { queue: true, emergencyRequest: true },
+  });
+
+  if (!token) {
+    throw new Error("Token not found");
+  }
+
+  if (token.status !== "WAITING") {
+    throw new Error("Only waiting tokens can have priority modified");
+  }
+
+  const newPriority = setEmergency ? "EMERGENCY" : "STANDARD";
+
+  // Update token priority
+  await prisma.token.update({
+    where: { id: tokenId },
+    data: { priority: newPriority },
+  });
+
+  // If there's an existing emergency request, update it as well
+  if (token.emergencyRequest) {
+    await prisma.emergencyRequest.update({
+      where: { id: token.emergencyRequest.id },
+      data: {
+        status: setEmergency ? "APPROVED" : "REJECTED",
+        reviewedAt: new Date(),
+        reviewedBy: reviewer,
+        notes: notes || (setEmergency ? "Direct priority grant by Admin" : "Demoted to standard priority"),
+      },
+    });
+  }
+
+  // Re-index entire queue so emergency token moves to #1
+  await reindexQueuePositions(prisma, token.queueId);
+
+  const updatedToken = await prisma.token.findUnique({
+    where: { id: tokenId },
+    include: { queue: true },
+  });
+
+  // Publish event
+  realtimeBus.publish(setEmergency ? "EMERGENCY_PROMOTED" : "TOKEN_CREATED", {
+    tokenId: updatedToken!.id,
+    queueId: updatedToken!.queueId,
+    data: {
+      token: {
+        id: updatedToken!.id,
+        displayNumber: updatedToken!.displayNumber,
+        position: updatedToken!.position,
+        priority: updatedToken!.priority,
+        status: updatedToken!.status,
+      },
+    },
+  });
+
+  return updatedToken;
+}
+
+/**
  * Recall Token
  */
 export async function recallToken(counterId: string) {

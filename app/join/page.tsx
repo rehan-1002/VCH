@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -60,20 +60,23 @@ export default function CheckInPage() {
   }, []);
 
   // Fetch initial queues
-  const fetchQueues = async () => {
+  const fetchQueues = useCallback(async () => {
     try {
-      const res = await fetch("/api/queues");
+      const res = await fetch("/api/queues", { cache: "no-store" });
       const data = await res.json();
       if (data.success && data.queues) {
         setQueues(data.queues);
-        if (data.queues.length > 0 && !selectedQueueId) {
-          setSelectedQueueId(data.queues[0].id);
-        }
+        setSelectedQueueId((prev) => {
+          if (prev && data.queues.some((q: any) => q.id === prev)) {
+            return prev; // keep the user's manual selection!
+          }
+          return data.queues[0]?.id || "";
+        });
       }
     } catch (err) {
       console.error("Failed to load queues:", err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchQueues();
