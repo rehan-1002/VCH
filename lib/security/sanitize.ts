@@ -1,9 +1,19 @@
-import DOMPurify from "isomorphic-dompurify";
-
+/**
+ * Safe, zero-dependency serverless text sanitization
+ */
 export function sanitizeText(input?: string | null): string {
   if (!input) return "";
-  return DOMPurify.sanitize(input.trim(), {
-    ALLOWED_TAGS: [], // Strip all HTML tags for pure textual safety
-    ALLOWED_ATTR: [],
-  });
+  return input
+    .trim()
+    .replace(/<[^>]*>?/gm, "") // Strip HTML tags
+    .replace(/[&<>"']/g, (match) => {
+      const entities: Record<string, string> = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      };
+      return entities[match] || match;
+    });
 }

@@ -148,9 +148,15 @@ export default function CheckInPage() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "Failed to create token");
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        throw new Error("Unable to create queue ticket. Please check your connection and try again.");
+      }
+
+      if (!res.ok || !data || !data.success) {
+        throw new Error(data?.error || "Failed to create token. Please try again.");
       }
 
       // Navigate to Visitor Mobile Pass
